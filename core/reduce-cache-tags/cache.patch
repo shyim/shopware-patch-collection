@@ -1,0 +1,93 @@
+Index: src/Core/Content/Product/DataAbstractionLayer/StockUpdater.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Content/Product/DataAbstractionLayer/StockUpdater.php	(revision 01ff54ad3cc4301ab1f9c8b34716cef1690b46e4)
++++ src/Core/Content/Product/DataAbstractionLayer/StockUpdater.php	(revision c5546664ce63134e8547a41b990fabd34540dd9a)
+@@ -352,7 +352,6 @@
+             $tags[] = $this->cacheKeyGenerator->getEntityTag($id, $this->definition->getEntityName());
+         }
+
+-        $tags[] = $this->cacheKeyGenerator->getFieldTag($this->definition, 'id');
+         $tags[] = $this->cacheKeyGenerator->getFieldTag($this->definition, 'available');
+         $tags[] = $this->cacheKeyGenerator->getFieldTag($this->definition, 'availableStock');
+         $tags[] = $this->cacheKeyGenerator->getFieldTag($this->definition, 'stock');
+Index: src/Core/Framework/DataAbstractionLayer/Cache/InvalidateCacheSubscriber.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Framework/DataAbstractionLayer/Cache/InvalidateCacheSubscriber.php	(revision 01ff54ad3cc4301ab1f9c8b34716cef1690b46e4)
++++ src/Core/Framework/DataAbstractionLayer/Cache/InvalidateCacheSubscriber.php	(revision c5546664ce63134e8547a41b990fabd34540dd9a)
+@@ -3,6 +3,9 @@
+
+ namespace Shopware\Core\Framework\DataAbstractionLayer\Cache;
+
++use Shopware\Core\Checkout\Payment\PaymentMethodDefinition;
++use Shopware\Core\Checkout\Shipping\ShippingMethodDefinition;
++use Shopware\Core\Content\Media\MediaDefinition;
+ use Shopware\Core\Framework\Adapter\Cache\CacheClearer;
+ use Shopware\Core\Framework\DataAbstractionLayer\Dbal\EntityDefinitionQueryHelper;
+ use Shopware\Core\Framework\DataAbstractionLayer\DefinitionInstanceRegistry;
+@@ -11,10 +14,32 @@
+ use Shopware\Core\Framework\DataAbstractionLayer\Field\FkField;
+ use Shopware\Core\Framework\DataAbstractionLayer\Field\StorageAware;
+ use Shopware\Core\Framework\DataAbstractionLayer\Field\TranslatedField;
++use Shopware\Core\Framework\DataAbstractionLayer\Version\VersionDefinition;
++use Shopware\Core\System\Country\CountryDefinition;
++use Shopware\Core\System\Currency\CurrencyDefinition;
++use Shopware\Core\System\Language\LanguageDefinition;
++use Shopware\Core\System\SalesChannel\SalesChannelDefinition;
++use Shopware\Core\System\Salutation\SalutationDefinition;
+ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+
+ class InvalidateCacheSubscriber implements EventSubscriberInterface
+ {
++    /**
++     * Dont't delete invalidate these cached entities when entities have an association to them
++     * These entities are used in all pages mostly. It should be wiped when explict this entity has been modified
++     */
++    private const BLACKLIST_FK_ENTITIES = [
++        LanguageDefinition::ENTITY_NAME,
++        CurrencyDefinition::ENTITY_NAME,
++        VersionDefinition::ENTITY_NAME,
++        SalesChannelDefinition::ENTITY_NAME,
++        SalutationDefinition::ENTITY_NAME,
++        CountryDefinition::ENTITY_NAME,
++        ShippingMethodDefinition::ENTITY_NAME,
++        PaymentMethodDefinition::ENTITY_NAME,
++        MediaDefinition::ENTITY_NAME,
++    ];
++
+     /**
+      * @var CacheClearer
+      */
+@@ -75,7 +100,9 @@
+                     $field = $definition->getFields()->get($propertyName);
+
+                     if (($field instanceof FkField) && $value !== null) {
+-                        $keys[] = $this->cacheKeyGenerator->getEntityTag($value, $field->getReferenceDefinition()->getEntityName());
++                        if (!in_array($field->getReferenceDefinition()->getEntityName(), self::BLACKLIST_FK_ENTITIES)) {
++                            $keys[] = $this->cacheKeyGenerator->getEntityTag($value, $field->getReferenceDefinition()->getEntityName());
++                        }
+                     }
+
+                     if ($field instanceof TranslatedField) {
+Index: src/Storefront/Framework/Cache/CacheStore.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Storefront/Framework/Cache/CacheStore.php	(revision c5546664ce63134e8547a41b990fabd34540dd9a)
++++ src/Storefront/Framework/Cache/CacheStore.php	(revision b97f7a876c55fdf2fe174768c87ebedc84701689)
+@@ -98,6 +98,9 @@
+         $item->expiresAt($response->getExpires());
+
+         $tags = $this->cacheTagCollection->getTags();
++        $tags = array_filter($tags, function (string $tag) {
++            return strpos($tag, 'customer-') === false && strpos($tag, 'customer_address') === false;
++        });
+
+         if (!empty($tags) && $item instanceof CacheItem) {
+             $item->tag($tags);

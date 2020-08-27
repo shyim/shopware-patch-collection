@@ -1,0 +1,22 @@
+Index: src/Storefront/Framework/Cache/CacheTagCollection.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Storefront/Framework/Cache/CacheTagCollection.php	(revision a586d4ad6d4a79f0b183269450f43ce534fa8dca)
++++ src/Storefront/Framework/Cache/CacheTagCollection.php	(date 1595940167960)
+@@ -24,12 +24,12 @@
+         }
+
+         if (is_array($tags)) {
+-            $this->tags = array_unique(array_merge($this->tags, array_values($tags)));
++            $this->tags = array_merge($this->tags, array_values($tags));
+         }
+     }
+
+     public function getTags(): array
+     {
+-        return $this->tags;
++        return array_unique($this->tags);
+     }
+ }

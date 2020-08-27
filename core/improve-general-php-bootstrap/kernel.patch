@@ -1,0 +1,135 @@
+Index: src/Core/Kernel.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Kernel.php	(revision c5546664ce63134e8547a41b990fabd34540dd9a)
++++ src/Core/Kernel.php	(revision b97f7a876c55fdf2fe174768c87ebedc84701689)
+@@ -217,7 +217,10 @@
+ 
+     protected function configureContainer(ContainerBuilder $container, LoaderInterface $loader): void
+     {
+-        $container->setParameter('container.dumper.inline_class_loader', true);
++        if (\function_exists('opcache_reset')) {
++            $container->setParameter('container.dumper.inline_class_loader', true);
++        }
++
+         $container->setParameter('container.dumper.inline_factories', true);
+ 
+         $confDir = $this->getProjectDir() . '/config';
+Index: src/Storefront/DependencyInjection/services.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Storefront/DependencyInjection/services.xml	(revision c5546664ce63134e8547a41b990fabd34540dd9a)
++++ src/Storefront/DependencyInjection/services.xml	(revision b97f7a876c55fdf2fe174768c87ebedc84701689)
+@@ -120,6 +120,11 @@
+             <tag name="kernel.event_subscriber"/>
+         </service>
+ 
++        <service id="Shopware\Storefront\Framework\Routing\StorefrontResponseSubscriber">
++            <argument type="service" id="Shopware\Storefront\Framework\Csrf\CsrfPlaceholderHandler"/>
++            <tag name="kernel.event_listener"/>
++        </service>
++
+         <service id="Shopware\Storefront\Framework\Csrf\CsrfRouteListener">
+             <argument type="service" id="security.csrf.token_manager"/>
+             <argument>%storefront.csrf.enabled%</argument>
+Index: src/Storefront/Framework/Routing/StorefrontResponseSubscriber.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Storefront/Framework/Routing/StorefrontResponseSubscriber.php	(revision b97f7a876c55fdf2fe174768c87ebedc84701689)
++++ src/Storefront/Framework/Routing/StorefrontResponseSubscriber.php	(revision b97f7a876c55fdf2fe174768c87ebedc84701689)
+@@ -0,0 +1,45 @@
++<?php declare(strict_types=1);
++
++namespace Shopware\Storefront\Framework\Routing;
++
++use Shopware\Core\Framework\Event\BeforeSendResponseEvent;
++use Shopware\Core\SalesChannelRequest;
++use Shopware\Storefront\Framework\Csrf\CsrfPlaceholderHandler;
++
++class StorefrontResponseSubscriber
++{
++    /**
++     * @var CsrfPlaceholderHandler
++     */
++    private $csrfPlaceholderHandler;
++
++    public function __construct(CsrfPlaceholderHandler $csrfPlaceholderHandler)
++    {
++        $this->csrfPlaceholderHandler = $csrfPlaceholderHandler;
++    }
++
++    public function __invoke(BeforeSendResponseEvent $e): void
++    {
++        $this->replaceCsrfToken($e);
++        $this->setCanonicalUrl($e);
++    }
++
++    public function setCanonicalUrl(BeforeSendResponseEvent $event): void
++    {
++        if (!$event->getResponse()->isSuccessful()) {
++            return;
++        }
++
++        if ($canonical = $event->getRequest()->attributes->get(SalesChannelRequest::ATTRIBUTE_CANONICAL_LINK)) {
++            $canonical = sprintf('<%s>; rel="canonical"', $canonical);
++            $event->getResponse()->headers->set('Link', $canonical);
++        }
++    }
++
++    public function replaceCsrfToken(BeforeSendResponseEvent $event): void
++    {
++        $event->setResponse(
++            $this->csrfPlaceholderHandler->replaceCsrfToken($event->getResponse(), $event->getRequest())
++        );
++    }
++}
+Index: src/Storefront/Framework/Routing/StorefrontSubscriber.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Storefront/Framework/Routing/StorefrontSubscriber.php	(revision c5546664ce63134e8547a41b990fabd34540dd9a)
++++ src/Storefront/Framework/Routing/StorefrontSubscriber.php	(revision b97f7a876c55fdf2fe174768c87ebedc84701689)
+@@ -105,10 +105,6 @@
+             CustomerLoginEvent::class => [
+                 'updateSession',
+             ],
+-            BeforeSendResponseEvent::class => [
+-                ['replaceCsrfToken'],
+-                ['setCanonicalUrl'],
+-            ],
+             StorefrontRenderEvent::class => [
+                 ['addHreflang'],
+             ],
+@@ -252,25 +248,6 @@
+         throw new AccessDeniedHttpException('PageController can\'t be requested via XmlHttpRequest.');
+     }
+ 
+-    public function setCanonicalUrl(BeforeSendResponseEvent $event): void
+-    {
+-        if (!$event->getResponse()->isSuccessful()) {
+-            return;
+-        }
+-
+-        if ($canonical = $event->getRequest()->attributes->get(SalesChannelRequest::ATTRIBUTE_CANONICAL_LINK)) {
+-            $canonical = sprintf('<%s>; rel="canonical"', $canonical);
+-            $event->getResponse()->headers->set('Link', $canonical);
+-        }
+-    }
+-
+-    public function replaceCsrfToken(BeforeSendResponseEvent $event): void
+-    {
+-        $event->setResponse(
+-            $this->csrfPlaceholderHandler->replaceCsrfToken($event->getResponse(), $event->getRequest())
+-        );
+-    }
+-
+     public function addHreflang(StorefrontRenderEvent $event): void
+     {
+         $request = $event->getRequest();

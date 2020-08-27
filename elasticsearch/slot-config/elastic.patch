@@ -1,0 +1,28 @@
++++ vendor/shopware/elasticsearch/Framework/Indexing/ElasticsearchIndexer.php       (date 1596627004599)
+@@ -270,6 +271,8 @@
+             $documents[] = ['delete' => ['_id' => $id]];
+         }
+
++        $this->removeDataKey($documents, 'slotConfig');
++
+         // index found entities
+         $result = $this->client->bulk([
+             'index' => $index,
+@@ -286,6 +289,17 @@
+         }
+     }
+
++    private function removeDataKey(array &$lookupArray, string $lookupKey)
++    {
++        foreach ($lookupArray as $key => &$value) {
++            if ($key === $lookupKey) {
++                $value = null;
++            } else if (is_array($value)) {
++                $this->removeDataKey($value, $lookupKey);
++            }
++        }
++    }
++
+     private function createIndexingMessage(IndexerOffset $offset, Context $context): ?EntityIndexingMessage
+     {
+         $definition = $this->registry->get($offset->getDefinition());

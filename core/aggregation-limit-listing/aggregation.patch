@@ -1,0 +1,84 @@
+Index: src/Core/Framework/DataAbstractionLayer/Dbal/EntityAggregator.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Framework/DataAbstractionLayer/Dbal/EntityAggregator.php	(revision 97563cd0d9c773d61df4c95fa7f0168312bf060a)
++++ src/Core/Framework/DataAbstractionLayer/Dbal/EntityAggregator.php	(date 1598279180462)
+@@ -402,6 +402,10 @@
+
+         $accessor = 'LOWER(HEX(' . $accessor . '))';
+         $query->addSelect(sprintf('%s as `%s`', $accessor, $aggregation->getName()));
++
++        if ($aggregation->getSize()) {
++            $query->setMaxResults($aggregation->getSize());
++        }
+     }
+
+     private function hydrateResult(Aggregation $aggregation, EntityDefinition $definition, array $rows, Context $context): AggregationResult
+Index: src/Core/Framework/DataAbstractionLayer/Search/Aggregation/Metric/EntityAggregation.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Framework/DataAbstractionLayer/Search/Aggregation/Metric/EntityAggregation.php	(revision 97563cd0d9c773d61df4c95fa7f0168312bf060a)
++++ src/Core/Framework/DataAbstractionLayer/Search/Aggregation/Metric/EntityAggregation.php	(date 1598279180452)
+@@ -11,14 +11,25 @@
+      */
+     private $entity;
+
+-    public function __construct(string $name, string $field, string $entity)
++    /**
++     * @var int|null
++     */
++    private $size;
++
++    public function __construct(string $name, string $field, string $entity, ?int $size = null)
+     {
+         parent::__construct($name, $field);
+         $this->entity = $entity;
++        $this->size = $size;
+     }
+
+     public function getEntity(): string
+     {
+         return $this->entity;
+     }
++
++    public function getSize(): ?int
++    {
++        return $this->size;
++    }
+ }
+Index: src/Core/Content/Product/SalesChannel/Listing/ProductListingFeaturesSubscriber.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Content/Product/SalesChannel/Listing/ProductListingFeaturesSubscriber.php	(revision 97563cd0d9c773d61df4c95fa7f0168312bf060a)
++++ src/Core/Content/Product/SalesChannel/Listing/ProductListingFeaturesSubscriber.php	(date 1598279001440)
+@@ -197,7 +197,7 @@
+     private function handleManufacturerFilter(Request $request, Criteria $criteria): void
+     {
+         $criteria->addAggregation(
+-            new EntityAggregation('manufacturer', 'product.manufacturerId', 'product_manufacturer')
++            new EntityAggregation('manufacturer', 'product.manufacturerId', 'product_manufacturer', 100)
+         );
+
+         $ids = $this->getManufacturerIds($request);
+Index: src/Elasticsearch/Framework/DataAbstractionLayer/CriteriaParser.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Elasticsearch/Framework/DataAbstractionLayer/CriteriaParser.php	(revision 97563cd0d9c773d61df4c95fa7f0168312bf060a)
++++ src/Elasticsearch/Framework/DataAbstractionLayer/CriteriaParser.php	(date 1598279097454)
+@@ -188,7 +188,7 @@
+     {
+         $bucketingAggregation = new Bucketing\TermsAggregation($aggregation->getName(), $fieldName);
+
+-        $bucketingAggregation->addParameter('size', ElasticsearchHelper::MAX_SIZE_VALUE);
++        $bucketingAggregation->addParameter('size', $aggregation->getSize() ?? ElasticsearchHelper::MAX_SIZE_VALUE);
+
+         return $bucketingAggregation;
+     }

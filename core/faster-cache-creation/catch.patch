@@ -1,0 +1,116 @@
+Index: src/Core/Framework/DataAbstractionLayer/Cache/CachedEntityReader.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Framework/DataAbstractionLayer/Cache/CachedEntityReader.php	(revision 7e16d40f83864ed3f993939cc00db88e53e23622)
++++ src/Core/Framework/DataAbstractionLayer/Cache/CachedEntityReader.php	(date 1598538106746)
+@@ -9,10 +9,13 @@
+use Shopware\Core\Framework\DataAbstractionLayer\Read\EntityReaderInterface;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Symfony\Component\Cache\Adapter\TagAwareAdapterInterface;
++use Symfony\Component\Cache\CacheItem;
+use Symfony\Contracts\Cache\ItemInterface;
+
+class CachedEntityReader implements EntityReaderInterface
+{
++    use CacheItemTrait;
++
+/**
+* @var TagAwareAdapterInterface
+*/
+@@ -160,8 +163,8 @@
+);
+
+/** @var ItemInterface $item */
+-        $item = $this->cache->getItem($key);
+-        $item->set($entity);
++        $item = $this->createCacheItem($key, $entity);
+
+$tags = $this->cacheKeyGenerator->getAssociatedTags($definition, $entity, $context);
+
+@@ -184,8 +187,8 @@
+);
+
+/** @var ItemInterface $item */
+-        $item = $this->cache->getItem($key);
+-        $item->set($id);
++        $item = $this->createCacheItem($key, $id);
+$entityTag = $definition->getEntityName() . '.id';
+$item->tag([$key, $entityTag]);
+
+@@ -198,8 +201,7 @@
+$key = $this->cacheKeyGenerator->getReadCriteriaCacheKey($definition, $criteria, $context);
+
+/** @var ItemInterface $item */
+-        $item = $this->cache->getItem($key);
+-        $item->set($entityCollection);
++        $item = $this->createCacheItem($key, $entityCollection);
+
+$tags = [];
+foreach ($entityCollection as $entity) {
+Index: src/Core/Framework/DataAbstractionLayer/Cache/CachedEntityAggregator.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Framework/DataAbstractionLayer/Cache/CachedEntityAggregator.php	(revision 7e16d40f83864ed3f993939cc00db88e53e23622)
++++ src/Core/Framework/DataAbstractionLayer/Cache/CachedEntityAggregator.php	(date 1598538106751)
+@@ -16,6 +16,8 @@
+
+class CachedEntityAggregator implements EntityAggregatorInterface
+{
++    use CacheItemTrait;
++
+/**
+* @var TagAwareAdapterInterface
+*/
+@@ -102,8 +104,7 @@
+$tags = $this->cacheKeyGenerator->getAggregationTags($definition, $criteria, $aggregation);
+
+/** @var ItemInterface $item */
+-            $item = $this->cache->getItem($key);
+-            $item->set($result);
++            $item = $this->createCacheItem($key, $result);
+$item->tag($tags);
+
+//deferred saves are persisted with the cache->commit()
+Index: src/Core/Framework/DataAbstractionLayer/Cache/CacheItemTrait.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Framework/DataAbstractionLayer/Cache/CacheItemTrait.php	(date 1598538075701)
++++ src/Core/Framework/DataAbstractionLayer/Cache/CacheItemTrait.php	(date 1598538075701)
+@@ -0,0 +1,31 @@
++<?php declare(strict_types=1);
++
++namespace Shopware\Core\Framework\DataAbstractionLayer\Cache;
++
++use Symfony\Component\Cache\CacheItem;
++
++trait CacheItemTrait
++{
+    +    private function createCacheItem(string $key, $value)
++    {
+        +        static $bind;
++
++        if ($bind === null) {
+            +            $bind = \Closure::bind(
+                +                static function ($key, $value) {
+                +                    $item = new CacheItem();
+                +                    $item->key = $key;
+                +                    $item->isTaggable = true;
+                +                    $item->isHit = false;
+                +                    $item->value = $value;
+                +
+                +                    return $item;
++                },
++                null,
++                CacheItem::class
++            );
++        }
++
++        return $bind($key, $value);
++    }
++}
