@@ -1,0 +1,301 @@
+Index: src/Core/Content/Sitemap/Provider/CategoryUrlProvider.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Content/Sitemap/Provider/CategoryUrlProvider.php	(revision be6f611ca965f9e79dba4ccb2e283ee0016089c4)
++++ src/Core/Content/Sitemap/Provider/CategoryUrlProvider.php	(date 1598551939420)
+@@ -4,15 +4,17 @@
+
+ use Shopware\Core\Content\Category\CategoryCollection;
+ use Shopware\Core\Content\Category\CategoryEntity;
+-use Shopware\Core\Content\Seo\SeoUrlPlaceholderHandlerInterface;
+ use Shopware\Core\Content\Sitemap\Service\ConfigHandler;
+ use Shopware\Core\Content\Sitemap\Struct\Url;
+ use Shopware\Core\Content\Sitemap\Struct\UrlResult;
+ use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+ use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsAnyFilter;
++use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
+ use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\NotFilter;
+ use Shopware\Core\System\SalesChannel\Entity\SalesChannelRepositoryInterface;
+ use Shopware\Core\System\SalesChannel\SalesChannelContext;
++use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
++use Symfony\Component\Routing\RouterInterface;
+
+ class CategoryUrlProvider implements UrlProviderInterface
+ {
+@@ -29,18 +31,18 @@
+     private $configHandler;
+
+     /**
+-     * @var SeoUrlPlaceholderHandlerInterface
++     * @var RouterInterface
+      */
+-    private $seoUrlPlaceholderHandler;
++    private $router;
+
+     public function __construct(
+         SalesChannelRepositoryInterface $categoryRepository,
+         ConfigHandler $configHandler,
+-        SeoUrlPlaceholderHandlerInterface $seoUrlPlaceholderHandler
++        RouterInterface $router
+     ) {
+         $this->categoryRepository = $categoryRepository;
+         $this->configHandler = $configHandler;
+-        $this->seoUrlPlaceholderHandler = $seoUrlPlaceholderHandler;
++        $this->router = $router;
+     }
+
+     public function getName(): string
+@@ -62,7 +64,7 @@
+             $lastmod = $category->getUpdatedAt() ?: $category->getCreatedAt();
+
+             $newUrl = clone $url;
+-            $newUrl->setLoc($this->seoUrlPlaceholderHandler->generate('frontend.navigation.page', ['navigationId' => $category->getId()]));
++            $newUrl->setLoc($this->getCategoryUrl($category));
+             $newUrl->setLastmod($lastmod);
+             $newUrl->setChangefreq(self::CHANGE_FREQ);
+             $newUrl->setResource(CategoryEntity::class);
+@@ -82,22 +84,29 @@
+         return new UrlResult($urls, $nextOffset);
+     }
+
+-    private function getCategories(SalesChannelContext $salesChannelContext, int $limit, ?int $offset): CategoryCollection
++    private function getCategories(SalesChannelContext $context, int $limit, ?int $offset): CategoryCollection
+     {
+-        $categoriesCriteria = new Criteria();
+-        $categoriesCriteria->setLimit($limit);
++        $criteria = new Criteria();
++        $seoUrls = $criteria->getAssociation('seoUrls');
++        $seoUrls->addFilter(new EqualsFilter('salesChannelId', $context->getSalesChannel()->getId()));
++        $seoUrls->addFilter(new EqualsFilter('languageId', $context->getSalesChannel()->getLanguageId()));
++        $seoUrls->addFilter(new EqualsFilter('isCanonical', true));
++
++        $criteria->setLimit($limit);
+
+         if ($offset !== null) {
+-            $categoriesCriteria->setOffset($offset);
++            $criteria->setOffset($offset);
+         }
+
+-        $excludedCategoryIds = $this->getExcludedCategoryIds($salesChannelContext);
++        $excludedCategoryIds = $this->getExcludedCategoryIds($context);
+         if (!empty($excludedCategoryIds)) {
+-            $categoriesCriteria->addFilter(new NotFilter(NotFilter::CONNECTION_AND, [new EqualsAnyFilter('id', $excludedCategoryIds)]));
++            $criteria->addFilter(new NotFilter(NotFilter::CONNECTION_AND, [new EqualsAnyFilter('id', $excludedCategoryIds)]));
+         }
+
+         /** @var CategoryCollection $categories */
+-        $categories = $this->categoryRepository->search($categoriesCriteria, $salesChannelContext)->getEntities();
++        $categories = $context->getContext()->disableCache(function () use ($criteria, $context) {
++            return $this->categoryRepository->search($criteria, $context)->getEntities();
++        });
+
+         return $categories;
+     }
+@@ -125,4 +134,13 @@
+
+         return array_column($excludedUrls, 'identifier');
+     }
++
++    private function getCategoryUrl(CategoryEntity $category): string
++    {
++        if ($category->getSeoUrls()->count()) {
++            return '/' . $category->getSeoUrls()->first()->getSeoPathInfo();
++        }
++
++        return $this->router->generate('frontend.navigation.page', ['navigationId' => $category->getId()], UrlGeneratorInterface::ABSOLUTE_PATH);
++    }
+ }
+Index: src/Core/Content/Sitemap/Provider/ProductUrlProvider.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Content/Sitemap/Provider/ProductUrlProvider.php	(revision be6f611ca965f9e79dba4ccb2e283ee0016089c4)
++++ src/Core/Content/Sitemap/Provider/ProductUrlProvider.php	(date 1598551939466)
+@@ -2,24 +2,27 @@
+
+ namespace Shopware\Core\Content\Sitemap\Provider;
+
++use Shopware\Core\Content\Product\Aggregate\ProductVisibility\ProductVisibilityDefinition;
+ use Shopware\Core\Content\Product\ProductCollection;
+ use Shopware\Core\Content\Product\ProductEntity;
+-use Shopware\Core\Content\Seo\SeoUrlPlaceholderHandlerInterface;
++use Shopware\Core\Content\Product\SalesChannel\ProductAvailableFilter;
+ use Shopware\Core\Content\Sitemap\Service\ConfigHandler;
+ use Shopware\Core\Content\Sitemap\Struct\Url;
+ use Shopware\Core\Content\Sitemap\Struct\UrlResult;
++use Shopware\Core\Framework\DataAbstractionLayer\EntityRepositoryInterface;
+ use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+ use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsAnyFilter;
++use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
+ use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\NotFilter;
+-use Shopware\Core\System\SalesChannel\Entity\SalesChannelRepositoryInterface;
+ use Shopware\Core\System\SalesChannel\SalesChannelContext;
++use Symfony\Component\Routing\RouterInterface;
+
+ class ProductUrlProvider implements UrlProviderInterface
+ {
+     public const CHANGE_FREQ = 'hourly';
+
+     /**
+-     * @var SalesChannelRepositoryInterface
++     * @var EntityRepositoryInterface
+      */
+     private $productRepository;
+
+@@ -29,18 +32,18 @@
+     private $configHandler;
+
+     /**
+-     * @var SeoUrlPlaceholderHandlerInterface
++     * @var RouterInterface
+      */
+-    private $seoUrlPlaceholderHandler;
++    private $router;
+
+     public function __construct(
+-        SalesChannelRepositoryInterface $productRepository,
++        EntityRepositoryInterface $productRepository,
+         ConfigHandler $configHandler,
+-        SeoUrlPlaceholderHandlerInterface $seoUrlPlaceholderHandler
++        RouterInterface $router
+     ) {
+         $this->productRepository = $productRepository;
+         $this->configHandler = $configHandler;
+-        $this->seoUrlPlaceholderHandler = $seoUrlPlaceholderHandler;
++        $this->router = $router;
+     }
+
+     public function getName(): string
+@@ -62,7 +65,7 @@
+             $lastmod = $product->getUpdatedAt() ?: $product->getCreatedAt();
+
+             $newUrl = clone $url;
+-            $newUrl->setLoc($this->seoUrlPlaceholderHandler->generate('frontend.detail.page', ['productId' => $product->getId()]));
++            $newUrl->setLoc($this->getProductUrl($product));
+             $newUrl->setLastmod($lastmod);
+             $newUrl->setChangefreq(self::CHANGE_FREQ);
+             $newUrl->setResource(ProductEntity::class);
+@@ -82,22 +85,33 @@
+         return new UrlResult($urls, $nextOffset);
+     }
+
+-    private function getProducts(SalesChannelContext $salesChannelContext, int $limit, ?int $offset): ProductCollection
++    private function getProducts(SalesChannelContext $context, int $limit, ?int $offset): ProductCollection
+     {
+-        $productsCriteria = new Criteria();
+-        $productsCriteria->setLimit($limit);
++        $criteria = new Criteria();
++        $criteria->addFilter(
++            new ProductAvailableFilter($context->getSalesChannel()->getId(), ProductVisibilityDefinition::VISIBILITY_LINK)
++        );
++
++        $seoUrls = $criteria->getAssociation('seoUrls');
++        $seoUrls->addFilter(new EqualsFilter('salesChannelId', $context->getSalesChannel()->getId()));
++        $seoUrls->addFilter(new EqualsFilter('languageId', $context->getSalesChannel()->getLanguageId()));
++        $seoUrls->addFilter(new EqualsFilter('isCanonical', true));
++
++        $criteria->setLimit($limit);
+
+         if ($offset !== null) {
+-            $productsCriteria->setOffset($offset);
++            $criteria->setOffset($offset);
+         }
+
+-        $excludedProductIds = $this->getExcludedProductIds($salesChannelContext);
++        $excludedProductIds = $this->getExcludedProductIds($context);
+         if (!empty($excludedProductIds)) {
+-            $productsCriteria->addFilter(new NotFilter(NotFilter::CONNECTION_AND, [new EqualsAnyFilter('id', $excludedProductIds)]));
++            $criteria->addFilter(new NotFilter(NotFilter::CONNECTION_AND, [new EqualsAnyFilter('id', $excludedProductIds)]));
+         }
+
+         /** @var ProductCollection $products */
+-        $products = $this->productRepository->search($productsCriteria, $salesChannelContext)->getEntities();
++        $products = $context->getContext()->disableCache(function () use ($criteria, $context) {
++            return $this->productRepository->search($criteria, $context->getContext())->getEntities();
++        });
+
+         return $products;
+     }
+@@ -125,4 +139,13 @@
+
+         return array_column($excludedUrls, 'identifier');
+     }
++
++    private function getProductUrl(ProductEntity $product): string
++    {
++        if ($product->getSeoUrls()->count()) {
++            return '/' . $product->getSeoUrls()->first()->getSeoPathInfo();
++        }
++
++        return $this->router->generate('frontend.detail.page', ['productId' => $product->getId()], RouterInterface::ABSOLUTE_PATH);
++    }
+ }
+Index: src/Storefront/Framework/Cache/CacheTagCollection.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Storefront/Framework/Cache/CacheTagCollection.php	(revision be6f611ca965f9e79dba4ccb2e283ee0016089c4)
++++ src/Storefront/Framework/Cache/CacheTagCollection.php	(date 1598551939500)
+@@ -24,12 +24,12 @@
+         }
+
+         if (is_array($tags)) {
+-            $this->tags = array_unique(array_merge($this->tags, array_values($tags)));
++            $this->tags = array_merge($this->tags, array_values($tags));
+         }
+     }
+
+     public function getTags(): array
+     {
+-        return $this->tags;
++        return array_unique($this->tags);
+     }
+ }
+Index: src/Core/Content/Sitemap/Service/SitemapExporter.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Content/Sitemap/Service/SitemapExporter.php	(revision be6f611ca965f9e79dba4ccb2e283ee0016089c4)
++++ src/Core/Content/Sitemap/Service/SitemapExporter.php	(date 1598551939472)
+@@ -78,7 +78,7 @@
+                 $result = $urlProvider->getUrls($salesChannelContext, $this->batchSize, $offset);
+
+                 foreach ($result->getUrls() as $url) {
+-                    $url->setLoc($this->seoUrlPlaceholderHandler->replace($url->getLoc(), $host, $salesChannelContext));
++                    $url->setLoc($host . $url->getLoc());
+                 }
+
+                 $sitemapHandle->write($result->getUrls());
+Index: src/Core/Content/DependencyInjection/sitemap.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Core/Content/DependencyInjection/sitemap.xml	(revision be6f611ca965f9e79dba4ccb2e283ee0016089c4)
++++ src/Core/Content/DependencyInjection/sitemap.xml	(date 1598551166466)
+@@ -28,7 +28,7 @@
+         <service id="Shopware\Core\Content\Sitemap\Provider\CategoryUrlProvider">
+             <argument type="service" id="sales_channel.category.repository"/>
+             <argument type="service" id="Shopware\Core\Content\Sitemap\Service\ConfigHandler"/>
+-            <argument type="service" id="Shopware\Core\Content\Seo\SeoUrlPlaceholderHandlerInterface"/>
++            <argument type="service" id="router"/>
+
+             <tag name="shopware.sitemap_url_provider"/>
+         </service>
+@@ -40,9 +40,9 @@
+         </service>
+
+         <service id="Shopware\Core\Content\Sitemap\Provider\ProductUrlProvider">
+-            <argument type="service" id="sales_channel.product.repository"/>
++            <argument type="service" id="product.repository"/>
+             <argument type="service" id="Shopware\Core\Content\Sitemap\Service\ConfigHandler"/>
+-            <argument type="service" id="Shopware\Core\Content\Seo\SeoUrlPlaceholderHandlerInterface"/>
++            <argument type="service" id="router"/>
+
+             <tag name="shopware.sitemap_url_provider"/>
+         </service>
